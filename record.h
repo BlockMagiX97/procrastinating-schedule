@@ -1,44 +1,44 @@
 #include <time.h>
-#ifndef PORT
-#define PORT 8081
-#endif
-#ifndef DB_ROOT
-#define DB_ROOT "/var/lib/procrast_data/"
-#endif
-#ifndef MAX_TASK_SIZE
-#define MAX_TASK_SIZE 256
-#endif
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <string.h>
+#include <fcntl.h>
 
-#ifndef MAX_FILENAME_SIZE
-#define MAX_FILENAME_SIZE 256
-#endif
-#ifndef MAX_RECORD_SIZE
-#define MAX_RECORD_SIZE sizeof(time_t) * 3 + sizeof(int)*2 + MAX_TASK_SIZE
-#endif
-
-
-// invalid if priority == INT_MIN
-struct record {
-	int id;
+typedef struct {
+	uint32_t id;
 	time_t start_time;
-	time_t finish;
 	time_t time_to_do;
-	int priority;
-	char *task;
-};
+	time_t finish_time;
+	uint16_t priority;
+	uint16_t task_lenght; // for easier buffer size prediction
+	char* task; // MUST include null byte
+} record;
 
-// returns size of buffer when succesfull otherwise -1
-// puts read record into param record
-int read_record_file_to_ptr(char *filename, struct record* record); 
-// returns size of buffer when succesfull otherwise -1
-// reads record from binary (buffer) and puts it into formated record (record)
-int read_record_buf_to_ptr(char* buffer, struct record* record);
-// returns -1 when it fails, 0 when not
-int write_record_filename(char * filename, struct record *record); 
-// returns -1 when it fails, 0 otherwise
-// write record to binary from formated record (record)
-int write_record_to_buffer(struct record* record, char *dest_buffer); 
-// prints record
-int printf_record(struct record * record); 
+// basicaly we first define static lenght and then we add dynamic elements to memory directly after last element 
+typedef struct {
+	uint32_t id;
+	time_t start_time;
+	time_t time_to_do;
+	time_t finish_time;
+	uint16_t priority;
+	uint16_t task_lenght;
+	// task is located here and is task_lenght bytes long !!!null byte not included!!!
+} __attribute__((packed)) record_network;
 
-struct record *get_all(int max_records);
+typedef struct {
+	uint8_t opcode;
+} __attribute__((packed)) packet_request;
+
+typedef struct {
+	uint8_t result;
+	uint32_t lenght_payload;
+} __attribute__((packed)) packet_response;
+
+int print_record(const record* dest);
+int read_record_ptr_to_ptr(record_network* src, record* dest, char* task);
+int read_record_from_fd(record* dest, int fd);
+int write_record_ptr_to_ptr(record* src, record_network* dest);
+int write_record_to_fd(record* src, int fd);
+

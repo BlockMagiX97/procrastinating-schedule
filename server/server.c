@@ -9,161 +9,151 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <limits.h>
+#include <sys/fcntl.h>
 #include "../record.h"		
 #ifndef OP_CODES_TABLE
-#define OP_CODES_TABLE {write_record_to_db, get_all_sorted, remove_record}
+#define OP_CODES_TABLE {&new_record, &get_all_sorted}
 #endif
 #ifndef OP_CODES_TABLE_LEN
-#define OP_CODES_TABLE_LEN 3	// NEEDS TO BE UPDATED
+#define OP_CODES_TABLE_LEN 2
 #endif
+#define PORT 4242
+#define DB_ROOT "/var/lib/procrast_data/" // NEEDS to have "/" at the end
+#define ENOUGH ((CHAR_BIT * sizeof(uint16_t) - 1) / 3 + 2) // MUST be of the same type as record.task_lenght 
 
-int priority_comp(const void * elem1, const void * elem2) {
-	int i = (*((struct record*)elem1)).priority;
-	int j = (*((struct record*)elem2)).priority;
-	if (i > j) return 1;
-	if (i < j) return -1;
+typedef int (*function_oper)(int, uint8_t); 
+
+int sort_records(const void* a, const void* b) {
+	record* e1 = (record*)a;
+	record* e2 = (record*)b;
+	if (e1->finish_time > e2->finish_time) return 1;
+	if (e1->finish_time < e2->finish_time) return -1;
+	if (e1->priority > e2->priority) return 1;
+	if (e1->priority < e2->priority) return -1;
 	return 0;
 }
+int get_all_sorted(int client_fd, uint8_t request_lenght) {
+	uint32_t file_count=0;
+	size_t db_len = strlen(DB_ROOT);
 
-int time_comp(const void * elem1, const void * elem2) {
-	time_t i = ((struct record*)elem1)->finish;
-	time_t j = ((struct record*)elem2)->finish;
-	if (i > j) return 1;
-	if (i < j) return -1;
-	return 0;
-}
-int remove_record(int clientfd, char *buffer) {
-	int record_id = *((int*)(buffer+1));
-	int result = 0;
-	char filename[MAX_FILENAME_SIZE+128] = {0};
-	snprintf(filename, MAX_FILENAME_SIZE+128 - 1, "%srecord_%d", DB_ROOT, record_id);
-	if(remove(filename) != 0) {
-		result = -1;
-	}
-	int tmp = sizeof(int);
-	if (send(clientfd, &tmp, sizeof(int), 0) != sizeof(int)) {
-		return 1;
-	}
-	if (send(clientfd, &result, sizeof(int), 0) != sizeof(int)) {
-		result = 1;
-	}
-	return result;
-	
-	
-}
-// if returns -1 error happenned , 1 means error and client does not know it
-int get_all_sorted(int clientfd, char *buffer) {
-	int file_count = 0;
-	DIR * dirp;
-	struct dirent * entry;
-
-	dirp = opendir(DB_ROOT); /* There should be error handling after this */
-	if (dirp == NULL) {
-		perror("cant open database: ");
-		return -1;
-	}
-	while ((entry = readdir(dirp)) != NULL) {
-		if (entry->d_type == DT_REG) { /* If the entry is a regular file */
+	struct dirent *de;  // Pointer for directory entry 
+  
+	DIR *dr = opendir(DB_ROOT); 
+  
+	if (dr == NULL) { 
+		printf("Could not open current directory" ); 
+		return 0; 
+	} 
+	while ((de = readdir(dr)) != NULL) {
+		if (de->d_type == DT_REG) {
 			file_count++;
 		}
 	}
-	closedir(dirp);
-	struct record * records = get_all(file_count);
+	closedir(dr);
 
-	qsort(records, file_count, sizeof(struct record), time_comp);
+	record* records = (record*)malloc(sizeof(record)*file_count);
 
-	int start=0;
-	int i;
-	time_t finish=0;
-	for (i=0; i<file_count;i++) {
-		if(finish != records[i].finish) {
-			qsort(records+start, i - start, sizeof(struct record), priority_comp);
-			// use finish as placeholder for current start_time
-			for (int j=i-1; j >= start; j--) {
-				// TODO: add checks for int overflows
-				finish -= records[j].time_to_do;
-				records[j].start_time = finish; 
+	dr = opendir(DB_ROOT); 
+  
+	if (dr == NULL) { 
+		printf("Could not open current directory" ); 
+		return 0; 
+	}
+	int filefd;
+	int i=0;
+	uint64_t total_size = 0;
+	while ((de = readdir(dr)) != NULL) {
+		if (de->d_type == DT_REG) {
+			filefd = openat(dirfd(dr), de->d_name, O_RDONLY);
+			if (filefd == -1) {
+				perror("file at get_all_sorted");
+				return -1;
 			}
-
-			finish = records[i].finish;
-			start = i;
+			read_record_from_fd(records+i, filefd);
+			records[i].id = atoi(de->d_name);
+			total_size += sizeof(record_network)+records[i].task_lenght;
+			close(filefd);
+			i++;
+			
 		}
-		
 	}
-	qsort(records+start, i - start, sizeof(struct record), priority_comp);
+	closedir(dr);
 
-	for (int j=i-1; j >= start; j--) {
-		// TODO: add checks for int overflows
-		finish -= records[j].time_to_do;
-		records[j].start_time = finish; 
+	qsort(records, file_count, sizeof(record), &sort_records);
+
+	write(client_fd, &file_count, sizeof(typeof(file_count)));
+
+	time_t finish;
+	time_t start;
+	start = records[file_count-1].finish_time;
+	finish = records[file_count-1].finish_time;
+	for (int j=file_count-1; j>=0; j--) {
+		if(finish != records[j].finish_time) {
+			start = records[j].finish_time;	
+			finish = records[j].finish_time;
+		}
+		start -= records[j].time_to_do;
+		records[j].start_time = start;
 	}
-
-	char *out_buffer = malloc(sizeof(int) + MAX_RECORD_SIZE * file_count);
-	*((int*)(out_buffer)) = file_count;
-	int offset = 0;
 	
-	for (int i=0;i<file_count;i++) {
-		offset += write_record_to_buffer(records+i, out_buffer+sizeof(int)+offset);
+
+	for (int j=0;j<file_count;j++) {
+		write_record_to_fd(records+j, client_fd);
 	}
-	int tmp = sizeof(int) + offset;
-	if (send(clientfd, &tmp, sizeof(int), 0) != sizeof(int)) {
-		return 1;
-	}
-	if (send(clientfd, out_buffer, tmp, 0) != tmp) {
-		return 1;
-	}
-	return 0;
+
+	return 0; 
 }
-// if returns -1 error happenned , 1 means error and client does not know it
-int write_record_to_db(int clientfd, char* buffer) {
-	int result = 0;
-	char* filename = (char*) malloc(sizeof(char) * (MAX_FILENAME_SIZE+strlen(DB_ROOT)));
+// should be free of memory leaks
+// request_lenght is not used
+int new_record(int client_fd, uint8_t request_lenght){
+	record tmp_rec;
+	read_record_from_fd(&tmp_rec, client_fd);
+	print_record(&tmp_rec);
+	uint32_t i=0;
+	size_t db_len = strlen(DB_ROOT);
+	char* buffer = (char*)malloc(db_len+ENOUGH+1);
 
-	// records start at 1 becouse error happens when id == 0
-	int i=1;
-	snprintf(filename, MAX_FILENAME_SIZE, "%srecord_%d",DB_ROOT, i);
-	while (access(filename, F_OK) == 0) {
+	do {
+		snprintf(buffer,db_len+ENOUGH, "%s%d",DB_ROOT, i);
+		buffer[db_len+ENOUGH] = '\0'; 
 		i++;
-		snprintf(filename, MAX_FILENAME_SIZE, "%srecord_%d",DB_ROOT, i);
-	}
+		printf("here\n");
+		
+	} while (access(buffer, F_OK) == 0);
 
-	struct record record;
-	read_record_buf_to_ptr(buffer+sizeof(char), &record);
-	if (write_record_filename(filename, &record) == -1) {
-		perror("write_record_to_db");
-		result = -1;
-		goto end_sequence;
-	} else {
-		result = record.id;
-	}
-end_sequence:
+	int record_filefd = open(buffer, O_WRONLY | O_CREAT, 0666);
+	free(buffer);
 
-	int tmp= sizeof(int);
-	if (send(clientfd, &tmp, sizeof(int), 0) != sizeof(int)) {
-		return -1;
-	}
-	if (send(clientfd, &result, tmp, 0) != tmp) {
-		result = 1;
-	}
-	return result;
+	write_record_to_fd(&tmp_rec, record_filefd);
+	free(tmp_rec.task);
+
+	close(record_filefd);
+	return 0;
 }
 
 void* handle_client(void* arg) {
 	int client_fd = *((int*)arg);
-	int max_records = 16;
-	char* request = (char *) malloc(256);	// assumes that char is 1 byte
-	recv(client_fd, request, 256, 0);
-	unsigned char op_code = request[0];
-	if (op_code >= OP_CODES_TABLE_LEN) {
-		printf("invalid op_code: %c\n", op_code);
-		return 0;
+
+	uint8_t first_packet[2];	// two chars first is op_code second is lenght of next packet
+	if (recv(client_fd, first_packet, 2, 0) != 2) {
+		printf("client didnt send correct packet\n");
+		goto return_point;
 	}
-	
-	int (*op_code_table[OP_CODES_TABLE_LEN]) (int, char*)= OP_CODES_TABLE;
-	int result = op_code_table[op_code](client_fd, request);
-	printf("exit code of operation %d is %d\n", op_code, result);
 
+	uint8_t op_code = first_packet[0];
+	if(op_code >= OP_CODES_TABLE_LEN) {
+		goto return_point;
+	}
+	uint8_t request_lenght = first_packet[1];
 
+	function_oper op_codes[OP_CODES_TABLE_LEN] = OP_CODES_TABLE;
+	int result = op_codes[op_code](client_fd, request_lenght);
+
+	printf("operation: %u, result: %d\n", op_code, result);
+
+return_point:
+	printf("client served\n");
+	close(client_fd);
 	return 0;
 }
 
