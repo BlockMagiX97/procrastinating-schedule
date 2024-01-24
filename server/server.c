@@ -12,16 +12,16 @@
 #include <sys/fcntl.h>
 #include "../record.h"		
 #ifndef OP_CODES_TABLE
-#define OP_CODES_TABLE {&new_record, &get_all_sorted}
+#define OP_CODES_TABLE {&new_record, &get_all_sorted, &delete_record}
 #endif
 #ifndef OP_CODES_TABLE_LEN
-#define OP_CODES_TABLE_LEN 2
+#define OP_CODES_TABLE_LEN 3
 #endif
 #define PORT 4242
 #define DB_ROOT "/var/lib/procrast_data/" // NEEDS to have "/" at the end
 #define ENOUGH ((CHAR_BIT * sizeof(uint16_t) - 1) / 3 + 2) // MUST be of the same type as record.task_lenght 
 
-typedef int (*function_oper)(int, uint8_t); 
+typedef int (*function_oper)(int); 
 
 int sort_records(const void* a, const void* b) {
 	record* e1 = (record*)a;
@@ -32,9 +32,20 @@ int sort_records(const void* a, const void* b) {
 	if (e1->priority < e2->priority) return -1;
 	return 0;
 }
-int get_all_sorted(int client_fd, uint8_t request_lenght) {
-	uint32_t file_count=0;
+int delete_record(int client_fd) {
 	size_t db_len = strlen(DB_ROOT);
+	char* buffer = (char*)malloc(db_len+ENOUGH+1);
+
+	uint32_t id;
+	read(client_fd, &id, sizeof(id));
+	snprintf(buffer, db_len+ENOUGH, "%s%d", DB_ROOT, id);
+	return remove(buffer);
+	
+
+	
+}
+int get_all_sorted(int client_fd) {
+	uint32_t file_count=0;
 
 	struct dirent *de;  // Pointer for directory entry 
   
@@ -100,12 +111,15 @@ int get_all_sorted(int client_fd, uint8_t request_lenght) {
 	for (int j=0;j<file_count;j++) {
 		write_record_to_fd(records+j, client_fd);
 	}
+	for (int j=0;j<file_count;j++) {
+		free(records[j].task);
+	}
+	free(records);
 
 	return 0; 
 }
 // should be free of memory leaks
-// request_lenght is not used
-int new_record(int client_fd, uint8_t request_lenght){
+int new_record(int client_fd){
 	record tmp_rec;
 	read_record_from_fd(&tmp_rec, client_fd);
 	print_record(&tmp_rec);
@@ -147,7 +161,7 @@ void* handle_client(void* arg) {
 	uint8_t request_lenght = first_packet[1];
 
 	function_oper op_codes[OP_CODES_TABLE_LEN] = OP_CODES_TABLE;
-	int result = op_codes[op_code](client_fd, request_lenght);
+	int result = op_codes[op_code](client_fd);
 
 	printf("operation: %u, result: %d\n", op_code, result);
 

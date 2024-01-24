@@ -16,9 +16,11 @@ int main(int argc, char**argv) {
 	serveraddr.sin_port = htons(PORT);
 	connect(sockfd, &serveraddr, sizeof(serveraddr));
 	uint8_t first_packet[2];
-	first_packet[0] = 1;
+	first_packet[0] = 2;
 	first_packet[1] = 0;
 	send(sockfd, first_packet, 2, 0);
+	uint32_t id = 3;
+	send(sockfd, &id, sizeof(id),0); 
 	uint32_t num_records;
 	recv(sockfd, &num_records, sizeof(uint32_t), 0);
 	record* records = (record*)malloc(sizeof(record)*num_records);
