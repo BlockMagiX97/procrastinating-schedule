@@ -1,4 +1,5 @@
 #include "record.h"
+#include <string.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <dirent.h>
@@ -6,13 +7,7 @@
 #include <stdlib.h>
 #include <limits.h>
 
-#define MAX_FILENAME_SIZE 256
-#define MAX_TASK_SIZE 256
-
-int write_record(int id, struct record *record) {
-	char filename[MAX_FILENAME_SIZE] = {0};
-	snprintf(filename, (MAX_FILENAME_SIZE-1), "record_%d", id);
-
+int write_record_filename(char * filename, struct record *record) {
 	FILE *fptr = fopen(filename, "wb"); 
 	if (!fptr) {
 		perror("fileopen");
@@ -42,33 +37,9 @@ int write_record(int id, struct record *record) {
 	return 0;
 }
 
-struct record *read_record(char *filename) {
-
+int read_record_file_to_ptr(char *filename, struct record* record) {
+	FILE *fptr = fopen(filename, "rb");
 	
-	FILE *fptr = fopen(filename, "rb");
-	struct record *record = (struct record *) malloc(sizeof(struct record));
-
-	fread(&record->finish, sizeof(record->finish), 1, fptr);
-
-	fread(&record->priority, sizeof(record->priority), 1, fptr);
-
-	fread(&record->time_to_do, sizeof(record->time_to_do), 1, fptr);
-
-	char *buffer = (char *) malloc(sizeof(char) * MAX_TASK_SIZE);
-	for (int i=0; i<MAX_TASK_SIZE;i++) {
-		buffer[i] = 0;
-	}
-	int i=0;
-	fread(buffer, sizeof(char), 1, fptr);
-	while(i < MAX_TASK_SIZE && buffer[i] != 0) {
-		i++;
-		fread(buffer+i, sizeof(char), 1, fptr);
-	}
-	record->task = buffer;
-	return record;
-}
-int read_record_ptr(char *filename, struct record* record) {
-	FILE *fptr = fopen(filename, "rb");
 	if(fptr == NULL) {
 		perror("fopen read_record_ptr");
 		return -1;
@@ -104,7 +75,27 @@ int read_record_ptr(char *filename, struct record* record) {
 	record->task = buffer;
 	return 0;
 }
+int read_record_ptr_to_ptr(char *buffer, struct record* record) {
+	int i=0;
+	memcpy(&(record->finish), buffer+i, sizeof(record->finish));
+	i+=sizeof(record->finish);
+	memcpy(&(record->priority), buffer+i, sizeof(record->priority));
+	i+=sizeof(record->priority);
+	memcpy(&(record->time_to_do), buffer+i, sizeof(record->time_to_do));
+	i+=sizeof(record->time_to_do);
 
+	char *task_buffer = (char*) malloc(sizeof(char)*MAX_TASK_SIZE);
+	bzero(task_buffer, sizeof(char)*MAX_TASK_SIZE);
+	task_buffer[0]=buffer[i];
+	int j=0;
+	// MAX_TASK_SIZE-1 to guarantee null termination
+	for(j=0;j<MAX_TASK_SIZE-1 && buffer[i+j] != '\0';j++) {
+		task_buffer[j] = buffer[i+j];
+	}
+	i+=j;
+	record->task = task_buffer;
+	return 0;
+}
 
 struct record *get_all(int max_records) {
 	DIR *dir;
@@ -128,7 +119,7 @@ struct record *get_all(int max_records) {
 		while ((ent = readdir (dir)) != NULL && i < max_records) {
 			if (ent->d_type != DT_DIR) {
 				snprintf(buffer, MAX_FILENAME_SIZE + 16 , "./records/%s", ent->d_name);
-				read_record_ptr(buffer, records+i);
+				read_record_file_to_ptr(buffer, records+i);
 				i++;
 			}
 		}

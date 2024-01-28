@@ -1,4 +1,4 @@
-1.	add shared record code
+1.	add shared record code									done
 2.	make dumb server and cient capable of comunication
 3.	make proper server (test using dumb client)
 4.	setup the server on rasberry pi
