@@ -42,21 +42,20 @@ int write_record_to_fd(record* src, int fd) {
 	return 0;
 }
 int read_record_from_fd(record* dest, int fd) {
-	record_network* in_record = (record_network*)malloc(sizeof(record_network));
-	if (read(fd, in_record, sizeof(record_network)) != sizeof(record_network)) {
+	record_network in_record;;
+	if (read(fd, &in_record, sizeof(record_network)) != sizeof(record_network)) {
 		perror("read failed: ");
 		return -1;
 	}
-	char* task_buffer = (char*)malloc(in_record->task_lenght+1);
-	if (read(fd, task_buffer, in_record->task_lenght) != in_record->task_lenght) {
+	char* task_buffer = (char*)malloc(in_record.task_lenght+1);
+	if (read(fd, task_buffer, in_record.task_lenght) != in_record.task_lenght) {
 		perror("read failed: ");
 		return -1;
 	}
 	
-	task_buffer[in_record->task_lenght] = '\0';
+	task_buffer[in_record.task_lenght] = '\0';
 
-	read_record_ptr_to_ptr(in_record, dest, task_buffer);
-	free(in_record);
+	read_record_ptr_to_ptr(&in_record, dest, task_buffer);
 	return 0;
 
 }

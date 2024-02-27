@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <argon2.h>
 #include <dirent.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -9,8 +10,12 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <limits.h>
+#include <errno.h>
 #include <sys/fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include "../record.h"		
+#include "../users.h"
 #ifndef OP_CODES_TABLE
 #define OP_CODES_TABLE {&new_record, &get_all_sorted, &delete_record}
 #endif
@@ -22,6 +27,10 @@
 #define ENOUGH ((CHAR_BIT * sizeof(uint16_t) - 1) / 3 + 2) // MUST be of the same type as record.task_lenght 
 
 typedef int (*function_oper)(int); 
+
+// CRYPTOGRAFY
+#define SALT_LEN 32
+#define HASH_LEN 32
 
 int sort_records(const void* a, const void* b) {
 	record* e1 = (record*)a;
@@ -144,29 +153,114 @@ int new_record(int client_fd){
 	close(record_filefd);
 	return 0;
 }
-
+// TODO: fix memory leaks
 void* handle_client(void* arg) {
 	int client_fd = *((int*)arg);
 
-	uint8_t first_packet[2];	// two chars first is op_code second is lenght of next packet
-	if (recv(client_fd, first_packet, 2, 0) != 2) {
-		printf("client didnt send correct packet\n");
-		goto return_point;
+	// authentication
+	uint8_t new_user;
+	read(client_fd, &new_user, sizeof(uint8_t));
+	if (new_user == 0) {
+		// create new user
+		user_entry info;
+		info.memory = (1<<16);
+		info.num_iter = 2;
+		info.pararell = 1;
+		info.version = ARGON2_VERSION_13;
+
+		info.salt_len = SALT_LEN;
+
+		uint8_t salt_buffer[SALT_LEN];
+		FILE* urandom = fopen("/dev/urandom","r");
+		if (fread(salt_buffer, sizeof(uint8_t), SALT_LEN, urandom) != SALT_LEN) {
+			perror("fread /dev/urandom");
+			goto end_point;
+		}
+		fclose(urandom);
+		info.salt = salt_buffer;
+
+		info.hash_len = HASH_LEN;
+
+		write_user_to_fd(client_fd, &info);
+
+		user_entry response;
+		read_user_from_fd(client_fd, &response);
+
+		int root_dir = open(DB_ROOT,O_DIRECTORY);
+		print_user(&response);
+		if (root_dir < 0) {
+			perror("db_root not open");
+			goto end_point;
+		}
+		if (mkdirat(root_dir, response.username, 0700) < 0) {
+			perror("cannot make dir");
+			goto end_point;
+		}
+		int user_root = openat(root_dir, response.username, O_DIRECTORY);
+		if (user_root < 0) {
+			perror("user_root not open");
+			goto end_point;
+		}
+		int user_file = openat(user_root, "info", O_CREAT | O_RDWR, 0666);
+		if (user_file < 0) {
+			perror("user_info can not open");
+			goto end_point;
+		}
+		write_user_to_fd(user_file, &response);
+		perror("write_user");
+		close(root_dir);
+		close(user_root);
+		close(user_file);
+	} else {
+		// authenticate user
+		
+		uint8_t username_len;
+		read(client_fd, &username_len, sizeof(uint8_t));
+		char* username = (char*)malloc(username_len+1);
+		read(client_fd, username, username_len);
+		username[username_len] = '\0';
+
+		int root_dir = open(DB_ROOT,O_DIRECTORY);
+		if (root_dir < 0) {
+			perror("db_root not open");
+			goto end_point;
+		}
+		int user_root = openat(root_dir, username, O_DIRECTORY);
+		if (user_root < 0) {
+			perror("user_root not open");
+			goto end_point;
+		}
+		int user_info_fd = openat(user_root, "info", O_RDONLY);
+		if (user_info_fd < 0) {
+			perror("user_info can not open");
+			goto end_point;
+		}
+
+		user_entry info;
+		read_user_from_fd(user_info_fd, &info);
+		bzero(info.hash, info.hash_len);
+		write_user_to_fd(client_fd, &info);
+
+		user_entry response;
+		read_user_from_fd(client_fd, &response);
+
+		// refresh hash from storage
+		close(user_info_fd);
+		// refresh seek
+		user_info_fd = openat(user_root, "info", O_RDONLY);
+		read_user_from_fd(user_info_fd, &info);
+
+		if (memcmp(info.hash, response.hash, info.hash_len) != 0) {
+			printf("user %s failed authentication\n", username);
+			goto end_point;
+		}
+		printf("success\n");
+		free(username);
+
+
+
 	}
-
-	uint8_t op_code = first_packet[0];
-	if(op_code >= OP_CODES_TABLE_LEN) {
-		goto return_point;
-	}
-	uint8_t request_lenght = first_packet[1];
-
-	function_oper op_codes[OP_CODES_TABLE_LEN] = OP_CODES_TABLE;
-	int result = op_codes[op_code](client_fd);
-
-	printf("operation: %u, result: %d\n", op_code, result);
-
-return_point:
-	printf("client served\n");
+	end_point:
 	close(client_fd);
 	return 0;
 }
