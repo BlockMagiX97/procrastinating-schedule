@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <fcntl.h>
+#include "network.h"
 
 typedef struct {
 	uint32_t id;
@@ -27,18 +28,8 @@ typedef struct {
 	// task is located here and is task_lenght bytes long !!!null byte not included!!!
 } __attribute__((packed)) record_network;
 
-typedef struct {
-	uint8_t opcode;
-} __attribute__((packed)) packet_request;
-
-typedef struct {
-	uint8_t result;
-	uint32_t lenght_payload;
-} __attribute__((packed)) packet_response;
-
+int free_record(record* rec);
 int print_record(const record* dest);
-int read_record_ptr_to_ptr(record_network* src, record* dest, char* task);
-int read_record_from_fd(record* dest, int fd);
-int write_record_ptr_to_ptr(record* src, record_network* dest);
-int write_record_to_fd(record* src, int fd);
+int read_record(packet*pack, record* dest);
+int write_record(packet* pack, record* src);
 
