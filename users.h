@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include "network.h"
 
 typedef struct {
 	uint32_t memory;
@@ -37,12 +38,8 @@ typedef struct {
 
 } user_entry;
 
-int write_user_to_fd(int fd, user_entry* user);
+int write_user(packet* pack, user_entry* user);
+int read_user_from_fd(packet* pack, user_entry* dest);
 
-// INTERNAL USE ONLY
-int write_user_ptr_ptr(user_entry* src, user_entry_network* dest);
-// INTERNAL USE ONLY
-int read_user_ptr_ptr(user_entry_network* src, uint8_t* dynamic_src, user_entry* dest);
-
-int read_user_from_fd(int fd, user_entry* dest);
+int free_user(user_entry* user);
 int print_user(const user_entry* user);
