@@ -7,6 +7,8 @@
 #include <fcntl.h>
 #include "network.h"
 
+#ifndef USER_ENTRYS
+#define USER_ENTRYS
 typedef struct {
 	uint32_t memory;
 	uint32_t num_iter;
@@ -37,9 +39,12 @@ typedef struct {
 	uint8_t* hash;
 
 } user_entry;
+#endif
 
-int write_user(packet* pack, user_entry* user);
-int read_user_from_fd(packet* pack, user_entry* dest);
+int write_user(packet* pack, user_entry* src);
+int write_user_to_fd(int fd, user_entry* src);
+int read_user(packet* pack, user_entry* dest);
+int read_user_from_fd(int fd, user_entry* dest);
 
 int free_user(user_entry* user);
 int print_user(const user_entry* user);

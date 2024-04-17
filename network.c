@@ -39,6 +39,16 @@ int write_packet(int fd, packet* pack) {
 	}
 	return 0;
 }
+
+int read_bytes_packet(packet* pack, void* dest, size_t n) {
+	if ((pack->data_len-pack->offset) < n) {
+		return 1;
+	}
+	memcpy(dest, pack->data+pack->offset, n);
+	pack->offset += n;
+	return 0;
+}
+
 void free_packet(packet* pack) {
 	free(pack->data);
 	free(pack);

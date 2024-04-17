@@ -1,190 +1,44 @@
 #include <stdio.h>
 #include <argon2.h>
-#include <dirent.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <netinet/in.h> 
+#include <stdlib.h> 
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <pthread.h>
-#include <limits.h>
-#include <errno.h>
-#include <sys/fcntl.h>
-#include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/stat.h> // mkdirat
+#include <sys/fcntl.h> // mkdirat
 #include "../record.h"		
 #include "../users.h"
-#ifndef OP_CODES_TABLE
-#define OP_CODES_TABLE {&new_record, &get_all_sorted, &delete_record}
-#endif
-#ifndef OP_CODES_TABLE_LEN
-#define OP_CODES_TABLE_LEN 3
-#endif
-#define PORT 4242
-#define DB_ROOT "/var/lib/procrast_data/" // NEEDS to have "/" at the end
-#define ENOUGH ((CHAR_BIT * sizeof(uint16_t) - 1) / 3 + 2) // MUST be of the same type as record.task_lenght 
+#include "../network.h"
+// Server config
+#define PORT 9991
+#define DB_ROOT "/var/lib/procrast_data/"
 
-typedef int (*function_oper)(int); 
+// Cryptografy config
+#define MEMORY (1<<16)
+#define NUM_ITER 2
+#define PARARELL 1
+#define VERSION ARGON2_VERSION_13
+#define SALT_LEN 64
+#define HASH_LEN 128
 
-// CRYPTOGRAFY
-#define SALT_LEN 32
-#define HASH_LEN 32
 
-int sort_records(const void* a, const void* b) {
-	record* e1 = (record*)a;
-	record* e2 = (record*)b;
-	if (e1->finish_time > e2->finish_time) return 1;
-	if (e1->finish_time < e2->finish_time) return -1;
-	if (e1->priority > e2->priority) return 1;
-	if (e1->priority < e2->priority) return -1;
-	return 0;
-}
-int delete_record(int client_fd) {
-	size_t db_len = strlen(DB_ROOT);
-	char* buffer = (char*)malloc(db_len+ENOUGH+1);
-
-	uint32_t id;
-	read(client_fd, &id, sizeof(id));
-	snprintf(buffer, db_len+ENOUGH, "%s%d", DB_ROOT, id);
-	return remove(buffer);
-	
-
-	
-}
-int get_all_sorted(int client_fd) {
-	uint32_t file_count=0;
-
-	struct dirent *de;  // Pointer for directory entry 
-  
-	DIR *dr = opendir(DB_ROOT); 
-  
-	if (dr == NULL) { 
-		printf("Could not open current directory" ); 
-		return 0; 
-	} 
-	while ((de = readdir(dr)) != NULL) {
-		if (de->d_type == DT_REG) {
-			file_count++;
-		}
-	}
-	closedir(dr);
-
-	record* records = (record*)malloc(sizeof(record)*file_count);
-
-	dr = opendir(DB_ROOT); 
-  
-	if (dr == NULL) { 
-		printf("Could not open current directory" ); 
-		return 0; 
-	}
-	int filefd;
-	int i=0;
-	uint64_t total_size = 0;
-	while ((de = readdir(dr)) != NULL) {
-		if (de->d_type == DT_REG) {
-			filefd = openat(dirfd(dr), de->d_name, O_RDONLY);
-			if (filefd == -1) {
-				perror("file at get_all_sorted");
-				return -1;
-			}
-			read_record_from_fd(records+i, filefd);
-			records[i].id = atoi(de->d_name);
-			total_size += sizeof(record_network)+records[i].task_lenght;
-			close(filefd);
-			i++;
-			
-		}
-	}
-	closedir(dr);
-
-	qsort(records, file_count, sizeof(record), &sort_records);
-
-	write(client_fd, &file_count, sizeof(typeof(file_count)));
-
-	time_t finish;
-	time_t start;
-	start = records[file_count-1].finish_time;
-	finish = records[file_count-1].finish_time;
-	for (int j=file_count-1; j>=0; j--) {
-		if(finish != records[j].finish_time) {
-			start = records[j].finish_time;	
-			finish = records[j].finish_time;
-		}
-		start -= records[j].time_to_do;
-		records[j].start_time = start;
-	}
-	
-
-	for (int j=0;j<file_count;j++) {
-		write_record_to_fd(records+j, client_fd);
-	}
-	for (int j=0;j<file_count;j++) {
-		free(records[j].task);
-	}
-	free(records);
-
-	return 0; 
-}
-// should be free of memory leaks
-int new_record(int client_fd){
-	record tmp_rec;
-	read_record_from_fd(&tmp_rec, client_fd);
-	print_record(&tmp_rec);
-	uint32_t i=0;
-	size_t db_len = strlen(DB_ROOT);
-	char* buffer = (char*)malloc(db_len+ENOUGH+1);
-
-	do {
-		snprintf(buffer,db_len+ENOUGH, "%s%d",DB_ROOT, i);
-		buffer[db_len+ENOUGH] = '\0'; 
-		i++;
-		printf("here\n");
-		
-	} while (access(buffer, F_OK) == 0);
-
-	int record_filefd = open(buffer, O_WRONLY | O_CREAT, 0666);
-	free(buffer);
-
-	write_record_to_fd(&tmp_rec, record_filefd);
-	free(tmp_rec.task);
-
-	close(record_filefd);
-	return 0;
-}
-// TODO: fix memory leaks
 void* handle_client(void* arg) {
 	int client_fd = *((int*)arg);
 
+	packet* auth_packet = read_packet(client_fd);
 	// authentication
 	uint8_t new_user;
-	read(client_fd, &new_user, sizeof(uint8_t));
+	read_bytes_packet(auth_packet, &new_user, 1);
+
 	if (new_user == 0) {
 		// create new user
-		user_entry info;
-		info.memory = (1<<16);
-		info.num_iter = 2;
-		info.pararell = 1;
-		info.version = ARGON2_VERSION_13;
 
-		info.salt_len = SALT_LEN;
-
-		uint8_t salt_buffer[SALT_LEN];
-		FILE* urandom = fopen("/dev/urandom","r");
-		if (fread(salt_buffer, sizeof(uint8_t), SALT_LEN, urandom) != SALT_LEN) {
-			perror("fread /dev/urandom");
-			goto end_point;
-		}
-		fclose(urandom);
-		info.salt = salt_buffer;
-
-		info.hash_len = HASH_LEN;
-
-		write_user_to_fd(client_fd, &info);
 
 		user_entry response;
-		read_user_from_fd(client_fd, &response);
+		read_user(auth_packet, &response);
 
 		int root_dir = open(DB_ROOT,O_DIRECTORY);
 		print_user(&response);
@@ -194,20 +48,23 @@ void* handle_client(void* arg) {
 		}
 		if (mkdirat(root_dir, response.username, 0700) < 0) {
 			perror("cannot make dir");
+			close(root_dir);
 			goto end_point;
 		}
 		int user_root = openat(root_dir, response.username, O_DIRECTORY);
 		if (user_root < 0) {
 			perror("user_root not open");
+			close(root_dir);
 			goto end_point;
 		}
 		int user_file = openat(user_root, "info", O_CREAT | O_RDWR, 0666);
 		if (user_file < 0) {
 			perror("user_info can not open");
+			close(root_dir);
+			close(user_root);
 			goto end_point;
 		}
 		write_user_to_fd(user_file, &response);
-		perror("write_user");
 		close(root_dir);
 		close(user_root);
 		close(user_file);

@@ -43,6 +43,47 @@ int write_user(packet* pack, user_entry* src) {
 	return 0;
 
 }
+int write_user_to_fd(int fd, user_entry* src) {
+	size_t user_size = sizeof(user_entry_network)+src->hash_len+src->salt_len+src->username_len;
+
+	uint8_t* buffer = (uint8_t*)malloc(user_size);
+	if (buffer == NULL) {
+		perror("malloc");
+		return 1;
+	}
+	user_entry_network* dest = (user_entry_network*)buffer;
+	dest->memory = src->memory;
+	dest->num_iter = src->num_iter;
+	dest->pararell = src->pararell;
+	dest->version = src->version;
+	dest->username_len = src->username_len;
+	dest->salt_len = src->salt_len;
+	dest->hash_len = src->hash_len;
+
+	buffer += sizeof(user_entry_network);
+
+	if (src->username != NULL) {
+		memcpy(buffer, src->username, src->username_len);
+		buffer+=src->username_len;
+	}
+	if (src->salt != NULL) {
+		memcpy(buffer, src->salt, src->salt_len);
+		buffer+=src->salt_len;
+	}
+	if (src->hash != NULL) {
+		memcpy(buffer, src->hash, src->hash_len);
+		buffer+= src->hash_len;
+	}
+
+	if (write(fd, buffer, user_size) != user_size) {
+		perror("write");
+		free(buffer);
+		return 1;
+	}
+	return 0;
+
+
+}
 int read_user(packet* pack, user_entry* dest) {
 	if ((pack->data_len-pack->offset) < sizeof(user_entry_network)) {
 		return 1;
@@ -78,5 +119,60 @@ int read_user(packet* pack, user_entry* dest) {
 	dest->salt = salt;
 	dest->hash = hash;
 
+	return 0;
+}
+int read_user_from_fd(int fd, user_entry* dest) {
+
+	user_entry_network* src = (user_entry_network*)malloc(sizeof(user_entry_network));
+	if (src == NULL) {
+		perror("malloc");
+		return 1;
+	}
+	if (read(fd, src, sizeof(user_entry_network)) != sizeof(user_entry_network)) {
+		perror("read");
+		free(src);
+		return 1;
+	}
+	dest->memory = src->memory;
+	dest->num_iter = src->num_iter;
+	dest->pararell = src->pararell;
+	dest->version = src->version;
+	dest->username_len = src->username_len;
+	dest->salt_len = src->salt_len;
+	dest->hash_len = src->hash_len;
+
+	size_t dyn_user_size = dest->username_len+dest->salt_len+dest->hash_len;
+	uint8_t* buffer = (uint8_t*)malloc(dyn_user_size);
+	if (buffer == NULL) {
+		perror("malloc");
+		free(src);
+		return 1;
+	}
+	if (read(fd, buffer, dyn_user_size) != dyn_user_size) {
+		perror("read");
+		free(buffer);
+		free(src);
+		return 1;
+	}
+
+	uint8_t* username = (uint8_t*)malloc(src->username_len+1);
+	memcpy(username, buffer, src->username_len);
+	username[src->username_len] = '\0';
+	buffer += src->username_len;
+
+	uint8_t* salt = (uint8_t*)malloc(src->salt_len);
+	memcpy(salt, buffer, src->salt_len);
+	buffer += src->salt_len;
+
+	uint8_t* hash = (uint8_t*)malloc(src->hash_len);
+	memcpy(hash, buffer, src->hash_len);
+	buffer += src->hash_len;
+
+	dest->username = (char*)username;
+	dest->salt = salt;
+	dest->hash = hash;
+
+	free(buffer);
+	free(src);
 	return 0;
 }

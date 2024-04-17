@@ -7,6 +7,8 @@
 #include <fcntl.h>
 #include "network.h"
 
+#ifndef RECORDS
+#define RECORDS
 typedef struct {
 	uint32_t id;
 	time_t start_time;
@@ -27,6 +29,7 @@ typedef struct {
 	uint16_t task_lenght;
 	// task is located here and is task_lenght bytes long !!!null byte not included!!!
 } __attribute__((packed)) record_network;
+#endif
 
 int free_record(record* rec);
 int print_record(const record* dest);
