@@ -1,6 +1,6 @@
-1.	add shared record code									done
-2.	make dumb server and cient capable of comunication					done
-3.	make proper server (test using dumb client)						done
+1.	add struct auto-gen functions					done
+2.	make dumb server and cient capable of comunication		done
+3.	make proper server (test using dumb client)
 3.b		rewrite
 4.	setup the server on rasberry pi
 5.	make proper clinet for dwm
