@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <string.h>
 #include <time.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -32,15 +33,16 @@
 		default: free \
 	)(X);
 
-	#define WRITE_STRUCT_TABLE(X, size_var) _Generic((X), \
-		struct record_t *: write_record_t , \
-		default: write \
-	)(fd, X, size_var)
+	#define SERIALIZE_STRUCT_TABLE(dest, X, size_var) _Generic((X), \
+		struct record_t *: serialize_record_t , \
+		default: memcpy \
+	)(dest, X, size_var)
 
-	#define READ_STRUCT_TABLE(X, size_var) _Generic((X), \
-		struct record_t *: read_record_t , \
-		default: read \
-	)(fd, X, size_var)
+	#define DESERIALIZE_STRUCT_TABLE(dest, X, size_var) _Generic((X), \
+		struct record_t *: deserialize_record_t , \
+		default: memcpy \
+	)(dest, X, size_var)
+
 
 	#define MAKE_STRUCT_FIELD(type, ptr, _, name, ...) \
 		type ptr name;
@@ -50,64 +52,89 @@
 			field_name##_FIELDS(MAKE_STRUCT_FIELD) \
 		} init_name ;
 
-	#define MAKE_WRITE_FIELD_PTR(type, var, size_var, ...) \
-		if (WRITE_STRUCT_TABLE(src->var, src->size_var * sizeof(type)) != src->size_var * sizeof(type)) { \
-			perror("write_ptr"); \
+	#define MAKE_SERIALIZE_FIELD_NORMAL(var, size_var, ...) \
+		size += sizeof(src->var); \
+		if (size > max_size) { \
+			fprintf(stderr, "%s: max_size(%ld) exceded\n", __func__, max_size); \
 			return -1; \
-		}
+		} \
+		SERIALIZE_STRUCT_TABLE(dest, &(src->var), sizeof(src->var)); \
+		dest += sizeof(src->var);
 
-	#define MAKE_WRITE_FIELD_NORMAL(type, var, size_var, ...) \
-		if (WRITE_STRUCT_TABLE(&(src->var), sizeof(type)) != sizeof(type)) { \
-			perror("write"); \
+	#define MAKE_SERIALIZE_FIELD_PTR(var, size_var, ...) \
+		size += src->size_var; \
+		if (size > max_size) { \
+			fprintf(stderr, "%s: max_size(%ld) exceded\n", __func__, max_size); \
 			return -1; \
-		}
-
-	#define MAKE_WRITE_FIELD(type, ptr, is_p, var, size_var, ...) \
-		MAKE_WRITE_FIELD_##is_p(type, var, size_var)
+		} \
+		SERIALIZE_STRUCT_TABLE(dest, src->var, src->size_var); \
+		dest += src->size_var;
 	
-		
-	#define MAKE_WRITE_FUNC(field_name, type, ...) \
-		int write_##type (int fd, struct type * src, size_t useless) { \
-			field_name##_FIELDS(MAKE_WRITE_FIELD) \
-			return 0; \
+	#define MAKE_SERIALIZE_FIELD(type, ptr, is_p, var, size_var, ...) \
+		MAKE_SERIALIZE_FIELD_##is_p(var, size_var)
+	
+	#define MAKE_SERIALIZE_FUNC(field_name, type, ...) \
+		int serialize_##type (void* dest, struct type * src, size_t max_size) { \
+			int size = 0; \
+			field_name##_FIELDS(MAKE_SERIALIZE_FIELD) \
+			return size; \
 		}
-	#define DECL_WRITE_FUNC(field_name, type, ...) \
-		int write_##type (int fd, struct type * src, size_t useless);
 
-	#define MAKE_READ_FIELD_PTR(type, var, size_var, ...) \
-		dest->var = malloc(dest->size_var * sizeof(type)); \
+	#define DECL_SERIALIZE_FUNC(field_name, type, ...) \
+		int serialize_##type (void* dest, struct type * src, size_t max_size);
+
+
+
+
+
+
+	#define MAKE_DESERIALIZE_FIELD_PTR(type, var, size_var, ...) \
+		size += dest->size_var; \
+		if (size > max_size) { \
+			fprintf(stderr, "%s: max_size(%ld) exceded\n", __func__, max_size); \
+			return -1; \
+		} \
+		dest->var = malloc(dest->size_var); \
 		if (dest->var == NULL) { \
 			perror("malloc"); \
 			return -1; \
 		} \
-		if (READ_STRUCT_TABLE(dest->var, dest->size_var * sizeof(type)) != dest->size_var * sizeof(type)) { \
-			perror("read_ptr"); \
-			return -1; \
-		}
+		DESERIALIZE_STRUCT_TABLE(dest->var, src, dest->size_var);  \
+		src += dest->size_var;
 
-	#define MAKE_READ_FIELD_NORMAL(type, var, size_var, ...) \
-		if (READ_STRUCT_TABLE(&(dest->var), sizeof(type)) != sizeof(type)) { \
-			perror("read"); \
+	#define MAKE_DESERIALIZE_FIELD_NORMAL(type, var, size_var, ...) \
+		size += sizeof(dest->var); \
+		if (size > max_size) { \
+			fprintf(stderr, "%s: max_size(%ld) exceded\n", __func__, max_size); \
 			return -1; \
-		}
+		} \
+		DESERIALIZE_STRUCT_TABLE(&(dest->var), src, sizeof(dest->var)); \
+		src += sizeof(dest->var);
+		
 
-	#define MAKE_READ_FIELD(type, ptr, is_p, var, size_var, ...) \
-		MAKE_READ_FIELD_##is_p(type, var, size_var)
+	#define MAKE_DESERIALIZE_FIELD(type, ptr, is_p, var, size_var, ...) \
+		MAKE_DESERIALIZE_FIELD_##is_p(type, var, size_var)
 	
 		
-	#define MAKE_READ_FUNC(field_name, type, ...) \
-		int read_##type (int fd, struct type * dest, size_t useless) { \
-			field_name##_FIELDS(MAKE_READ_FIELD) \
-			return 0; \
+	#define MAKE_DESERIALIZE_FUNC(field_name, type, ...) \
+		int deserialize_##type (struct type * dest, uint8_t * src, size_t max_size) { \
+			int size = 0; \
+			field_name##_FIELDS(MAKE_DESERIALIZE_FIELD) \
+			return size; \
 		}
 
-	#define DECL_READ_FUNC(field_name, type, ...) \
-		int read_##type (int fd, struct type * dest, size_t useless);
+	#define DECL_DESERIALIZE_FUNC(field_name, type, ...) \
+		int deserialize_##type (struct type * dest, uint8_t * src, size_t useless);
+
+
+
+
+
+
 
 	#define MAKE_FREE_FIELD_PTR(type, var, size_var, ...) \
 		FREE_STRUCT_TABLE(ptr->var)
 		
-
 	// none because staticaly allocated variables are freed with parent struct
 	#define MAKE_FREE_FIELD_NORMAL(type, var, size_var, ...)
 
@@ -124,12 +151,47 @@
 	#define DECL_FREE_FUNC(field_name, type, ...) \
 		int free_##type (struct type * ptr);
 
-	STRUCTS(MAKE_STRUCT_DEF)
-	STRUCTS(DECL_WRITE_FUNC)
-	STRUCTS(DECL_READ_FUNC)
-	STRUCTS(DECL_FREE_FUNC)
 
-	STRUCTS(MAKE_WRITE_FUNC)
-	STRUCTS(MAKE_READ_FUNC)
+
+
+
+
+
+	#define MAKE_SIZE_FIELD_PTR(type, var, size_var, ...) \
+		size += ptr->size_var;
+		
+	// none because staticaly allocated variables are freed with parent struct
+	#define MAKE_SIZE_FIELD_NORMAL(type, var, size_var, ...) \
+		size += sizeof(ptr->var);
+
+
+	#define MAKE_SIZE_FIELD(type, ptr, is_p, var, size_var, ...) \
+		MAKE_SIZE_FIELD_##is_p(type, var, size_var)
+	
+		
+	#define MAKE_SIZE_FUNC(field_name, type, ...) \
+		size_t size_##type (struct type * ptr) { \
+			size_t size=0; \
+			field_name##_FIELDS(MAKE_SIZE_FIELD) \
+			return size; \
+		}
+
+	#define DECL_SIZE_FUNC(field_name, type, ...) \
+		size_t size_##type (struct type * ptr);
+
+
+
+
+
+
+	STRUCTS(MAKE_STRUCT_DEF)
+	STRUCTS(DECL_SERIALIZE_FUNC)
+	STRUCTS(DECL_DESERIALIZE_FUNC)
+	STRUCTS(DECL_FREE_FUNC)
+	STRUCTS(DECL_SIZE_FUNC)
+
+	STRUCTS(MAKE_SERIALIZE_FUNC)
+	STRUCTS(MAKE_DESERIALIZE_FUNC)
 	STRUCTS(MAKE_FREE_FUNC)
+	STRUCTS(MAKE_SIZE_FUNC)
 #endif
