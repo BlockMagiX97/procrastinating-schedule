@@ -1,3 +1,4 @@
+#include "protocol.h"
 #include <stdio.h>
 #include <argon2.h>
 #include <netinet/in.h> 
@@ -8,7 +9,6 @@
 #include <pthread.h>
 #include <sys/types.h>
 #include <sys/stat.h> // mkdirat
-#include "../pre.c"
 // Server config
 #define PORT 9991
 
@@ -16,18 +16,18 @@
 void* handle_client(void* arg) {
 	int client_fd = *((int*)arg);
 
-	struct record_t b;
-	if (read_record_t(client_fd, &b, 0) != 0) {
+	struct format_mask_t* mask = malloc_mask();
+	if (mask == NULL) {
+		perror("mask");
 		return NULL;
 	}
-	printf("owner: %u\n", b.owner);
-	printf("permisions: %u\n", b.permission);
-	printf("group: %u\n", b.group);
-	printf("task[%u]: %s\n", b.task_len, b.task);
-
-	free_record_t(&b);
-
-
+	
+	int32_t total_struct = generate_mask_from_client(client_fd, mask);
+	if (total_struct < 0) {
+		printf("fuckers\n");
+		return NULL;
+	}
+	
 
 	return NULL;
 }

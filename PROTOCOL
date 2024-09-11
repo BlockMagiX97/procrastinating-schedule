@@ -1,0 +1,53 @@
+1. client tells server which structs and fields it supports
+2. server establishes the format
+3. communication is established
+
+
+
+1)
+	+--------------------------+
+	| num_of_supported_structs |
+	+--------------------------+
+	
+	+-------------+
+	| packet_size |
+	+-------------+
+
+	+------------------------------------------------------------------------------------------------------+
+	| essential | struct_name | '\0' | essential | size | collabisble_to | struct_field_1_name| '\0' | ... |
+	+------------------------------------------------------------------------------------------------------+
+
+
+
+2)
+	+----------------------------------------+
+	| num_of_supported_structs or error_code |
+	+----------------------------------------+
+
+	+-------------+
+	| packet_size |
+	+-------------+
+
+	+-----------------------------------------------------------------------------------------------------------------------------------+
+	| struct_name | '\0' | struct_identifier | num_of_fields | size | struct_field_name |  '\0' | size | struct_field_type | '\0' | ... |
+	+-----------------------------------------------------------------------------------------------------------------------------------+
+
+
+
+3)
+	+---------------------------+
+	| packet_size or error code |
+	+---------------------------+
+
+	+---------------------------------------------+
+	| struct_identifier | struct_field_data | ... |
+	+---------------------------------------------+
+
+
+error_codes:
+	-1: essential struct not supported by client
+	-2: essential struct not supported by server
+	-3: timeout
+	-4: invalid format
+	-5: general error
+	-6: network error
