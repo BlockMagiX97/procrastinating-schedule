@@ -12,13 +12,13 @@
 struct field_info_t {
 	uint8_t essential;
 	uint8_t collabsible_to;
-	char* identifier;
+	const char* identifier;
 	uint8_t size;
 };
 struct struct_info_t{
 	uint32_t num_of_fields;
 	uint8_t essential;
-	char* identifier;
+	const char* identifier;
 	struct field_info_t* field_info;
 };
 
@@ -27,7 +27,7 @@ struct format_t {
 	struct struct_info_t* struct_info;
 };
 
-static struct format_t global_format;
+extern struct format_t global_format;
 
 struct struct_mask_t {
 	uint32_t num_of_fields;
@@ -38,12 +38,15 @@ struct format_mask_t {
 	struct struct_mask_t* struct_mask;
 };
 
-#define READ_SAFE_FORMAT(var, iter, size, data) \
+#define DEBUG_PRINT printf("%s:%s:%d\n", __FILE__, __func__, __LINE__);
+
+#define READ_SAFE_FORMAT(var, iter, size, data, msg) \
 		if (iter+sizeof(var) > size) { \
-			printf("struct " #var " not found\n"); \
+			printf(msg " " #var " not found\n"); \
 			free(data); \
 			return -4; \
 		} \
+		memcpy(&var, data+iter, sizeof(var)); \
 		iter+=sizeof(var);
 		
 
@@ -80,9 +83,9 @@ struct format_mask_t {
 
 #define MAKE_STRUCT_DEFS(macro, id, type_name, essential_num) \
 	COUNT(global_format.struct_info[iterator].num_of_fields, macro##_FIELDS); \
-	global_format.struct_info[iterator].identifier = id ; \
+	global_format.struct_info[iterator].identifier = id; \
 	global_format.struct_info[iterator].essential = essential_num; \
-	global_format.struct_info[iterator].field_info = (struct field_info_t*) malloc(sizeof(struct field_info_t*) * global_format.struct_info[iterator].num_of_fields); \
+	global_format.struct_info[iterator].field_info = (struct field_info_t*) malloc(sizeof(struct field_info_t) * global_format.struct_info[iterator].num_of_fields); \
 	if (global_format.struct_info[iterator].field_info == NULL) { \
 		perror("malloc"); \
 		return -1; \
@@ -92,13 +95,13 @@ struct format_mask_t {
 	iterator++;
 
 
-// ONLY COMMENTS
 int generate_global_format();
 int32_t generate_mask_from_client(int fd, struct format_mask_t* mask);
 struct format_mask_t* malloc_mask();
+void free_mask(struct format_mask_t* mask);
 int send_format_to_server(int fd);
 int send_data(int fd, void* data, size_t size);
 int recv_data(int fd, void* data, size_t size);
-int send_format_to_client(int fd);
+int send_format_to_client(int fd, struct format_mask_t* mask, int32_t num_of_structs);
 
 #endif

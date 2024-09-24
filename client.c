@@ -16,6 +16,7 @@ int main(int argc, char**argv) {
 	connect(sockfd, &serveraddr, sizeof(serveraddr));
 
 
+	generate_global_format();
 	if (send_format_to_server(sockfd) < 0) {
 		printf("FUCKKKKK\n");
 	}
