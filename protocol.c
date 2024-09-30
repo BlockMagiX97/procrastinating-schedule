@@ -315,4 +315,49 @@ int send_format_to_client(int fd, struct format_mask_t* mask, int32_t num_of_str
 		}
 	}
 	return 0;
+
+}
+// returns 2 int32_t arrays
+int32_t** generate_format_from_server(int fd) {
+	int32_t num_of_structs=0;
+	if (recv_data(fd,&num_of_structs, 4) != 4) {
+		perror("recv_num_of_structs");
+		return NULL;
+	}
+	num_of_structs = ntohl(num_of_structs);
+	if (num_of_structs < 0) {
+		printf("error happened: %d\n", num_of_structs);
+		return NULL;
+	}
+
+
+
+
+
+
+}
+
+STRUCTS(MAKE_SUB_GET_FIELD)
+void* get_field(enum structs struct_id, void* object, uint32_t field_id) {
+	void* (*sub_funcs[])(void*, uint32_t) = {STRUCTS(MAKE_FUNCTION_POINTERS_SUB_GET)};
+	if (struct_id >= global_format.num_of_structs) {
+		printf("%s: struct_id too big\n", __func__);
+		return NULL;
+	}
+	if (field_id >= global_format.struct_info[struct_id].num_of_fields) {
+		printf("%s: field_id too big\n", __func__);
+		return NULL;
+	}
+	if (object == NULL) {
+		printf("%s: object is NULL\n", __func__);
+		return NULL;
+	}
+	return (*sub_funcs)(object, field_id);
+}
+int send_struct(enum structs struct_id, void* src) {
+	if (struct_id >= global_format.num_of_structs) {
+		printf("%s: struct_id too big\n", __func__);
+		return -5;
+	}
+	
 }

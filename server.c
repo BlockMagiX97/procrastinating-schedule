@@ -44,7 +44,6 @@ void* handle_client(void* arg) {
 		free_mask(mask);
 		return NULL;
 	}
-	for (int i=0;i<)
 	
 	free_mask(mask);
 	free(arg);
@@ -61,6 +60,12 @@ int main(int argc, char** argv) {
 		return -1;
 	}
 
+	struct struct1 a;
+	a.x = 1;
+	a.y = 'H';
+	struct struct2 b;
+	b.z = 'H';
+	printf("x: %d; y: %c; z: %c\n", *((int*)get_field(0, &a, 0)), *((char*)get_field(0, &a, 1)), *((char*)get_field(1, &b, 0)));
 	struct sockaddr_in address;
 	address.sin_family = AF_INET;
 	address.sin_addr.s_addr = INADDR_ANY;
